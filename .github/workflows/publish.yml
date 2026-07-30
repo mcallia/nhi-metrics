@@ -1,0 +1,29 @@
+name: Refresh Umami snapshot
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch snapshot from Umami
+        run: python3 fetch_snapshot.py data.json
+      - name: Commit if changed
+        run: |
+          git config user.name "snapshot-bot"
+          git config user.email "actions@github.com"
+          git add data.json
+          git diff --cached --quiet && echo "no change" && exit 0
+          git commit -m "snapshot refresh"
+          git push
