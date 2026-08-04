@@ -15,15 +15,28 @@ concurrency:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    timeout-minutes: 58
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch snapshot from Umami
-        run: python3 fetch_snapshot.py data.json
-      - name: Commit if changed
+      # GitHub throttles cron dispatches (gaps of 1-3h at busy times), so each
+      # dispatch loops for ~50 minutes, publishing a fresh snapshot every ~10.
+      # cancel-in-progress lets a newer dispatch take over cleanly.
+      - name: Snapshot loop
         run: |
           git config user.name "snapshot-bot"
           git config user.email "actions@github.com"
-          git add data.json
-          git diff --cached --quiet && echo "no change" && exit 0
-          git commit -m "snapshot refresh"
-          git push
+          for i in 1 2 3 4 5; do
+            if python3 fetch_snapshot.py data.json; then
+              git add data.json
+              if ! git diff --cached --quiet; then
+                git commit -m "snapshot refresh"
+                git pull --rebase origin main || true
+                git push || echo "push failed; will retry next cycle"
+              else
+                echo "no change this cycle"
+              fi
+            else
+              echo "fetch failed this cycle; retrying next cycle"
+            fi
+            [ "$i" -lt 5 ] && sleep 600
+          done
